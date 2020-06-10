@@ -1,20 +1,22 @@
 FROM alpine:latest AS builder
 
-ARG GEOIP2_VERSION=3.3
-ARG TENGINE_VERSION=2.3.2
-ARG MULTITHREAD_BUILD=0
-
+ARG APK_MIRROR
 WORKDIR /tmp
 
 # For latest build deps, see https://github.com/nginxinc/docker-nginx/blob/master/mainline/alpine/Dockerfile
 RUN set -xe\
- &&  apk add --no-cache --virtual .build-deps \
+ && [ ! -z ${APK_MIRROR} ] && sed -i "s/dl-cdn.alpinelinux.org/${APK_MIRROR}/g" /etc/apk/repositories ;\
+  apk add --no-cache --virtual .build-deps \
     gcc libc-dev make openssl-dev pcre-dev \
     zlib-dev linux-headers libxslt-dev gd-dev \
     geoip-dev perl-dev libedit-dev mercurial \
     gnupg bash alpine-sdk findutils \
     # For add ngx_http_geoip2_module
     libmaxminddb-dev
+
+ARG GEOIP2_VERSION=3.3
+ARG TENGINE_VERSION=2.3.2
+ARG MULTITHREAD_BUILD=0
 
 # Download sources
 RUN set -xe\
