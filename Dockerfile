@@ -60,7 +60,7 @@ RUN set -xe\
  && sed -e '/\s*server {$/,/^}$/d' -i /tengine/conf/nginx.conf\
  && echo "    include /tengine/conf.d/*.conf;" >> /tengine/conf/nginx.conf\
  && echo "}" >> /tengine/conf/nginx.conf\
- && sed -e 's/^}$//g;s/^    //g;/^$/d' /tengine/conf/example.conf
+ && sed -e 's/^}$//g;s/^    //g;/^$/d' -i /tengine/conf/example.conf
 STOPSIGNAL SIGTERM
 VOLUME [ "/tengine/conf.d", "/tengine/logs" ]
 EXPOSE 80 443
