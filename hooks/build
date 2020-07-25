@@ -1,3 +1,0 @@
-#!/bin/bash
-
-docker build --build-arg TENGINE_VERSION=$SOURCE_BRANCH --build-arg MULTITHREAD_BUILD=1 -f $DOCKERFILE_PATH -t $IMAGE_NAME .

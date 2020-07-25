@@ -1,0 +1,111 @@
+FROM alpine:latest AS build_env
+ARG APK_MIRROR
+ARG APK_MIRROR_HTTPS
+WORKDIR /tmp
+# For latest build deps, see https://github.com/nginxinc/docker-nginx/blob/master/mainline/alpine/Dockerfile
+# 本来是看 https://github.com/nginxinc/docker-nginx/blob/master/mainline/alpine/Dockerfile 里面的依赖，但由于tengine依赖不同，我又加了一些
+RUN set -xe;\
+    [ ! -z ${APK_MIRROR} ] \
+ && sed -e "s/dl-cdn.alpinelinux.org/${APK_MIRROR}/g" -i /etc/apk/repositories;\
+    [ ! -z "${APK_MIRROR_HTTPS}" ]\
+ && sed -e "s!http://!https://!g" -i /etc/apk/repositories;\
+ apk add --no-cache --virtual .build-deps \
+    gcc6 libc-dev make openssl-dev pcre-dev \
+    zlib-dev linux-headers libxslt-dev gd-dev \
+    geoip-dev libedit-dev perl-dev lua-dev yajl-dev mercurial \
+    gnupg alpine-sdk findutils \
+    # For add ngx_http_geoip2_module
+    # 下面的依赖是由于 geoip2 模块的
+    libmaxminddb-dev
+
+FROM alpine:latest as final_env
+ENV PATH=$PATH:/tengine/sbin
+WORKDIR /tengine
+ARG APK_MIRROR
+ARG APK_MIRROR_HTTPS
+RUN set -xe;\
+    [ ! -z ${APK_MIRROR} ]\
+ && sed -i "s/dl-cdn.alpinelinux.org/${APK_MIRROR}/g" /etc/apk/repositories ;\
+    [ ! -z "${APK_MIRROR_HTTPS}" ]\
+ && sed -e "s!http://!https://!g" -i /etc/apk/repositories;\
+    apk add --update --no-cache libmaxminddb pcre openssl \
+        zlib libxslt gd geoip libedit perl lua yajl\
+ && addgroup tengine\
+ && adduser -s /sbin/nologin -G tengine -D -H tengine
+
+# You can build with `--target=build_env` and `--target=final_env` to cache the environment.
+# Then add `--cache-from boringcat/tengine:build_env --cache-from boringcat/tengine:final_env` to your main
+# build.
+# It is useful for multi version builded.
+# 你可以在 build 的时候加参数 --target=build_env 和 --target=final_env 来创建环境缓存
+# build 环境通常极大，并且各版本之间没有多大差异
+# 通过在 build 命令行中添加 `--cache-from boringcat/tengine:build_env --cache-from boringcat/tengine:final_env`
+# 以使用缓存
+
+FROM build_env as builder
+
+ARG TENGINE_VERSION
+ARG GEOIP2_VERSION=3.3
+
+# Download sources
+RUN set -xe\
+ && wget "https://tengine.taobao.org/download/tengine-${TENGINE_VERSION}.tar.gz" -O tengine.tar.gz\
+ && wget "https://github.com/leev/ngx_http_geoip2_module/archive/${GEOIP2_VERSION}.tar.gz" -O geoip2.tar.gz
+
+ARG MULTITHREAD_BUILD=0
+
+# modules info:
+# 使用的模块信息：
+#  with all '--with' option and all modules exclude:
+#  启用了所有'--with'的选型，并且加载了所有模块，除了下面的这些：
+#   --with-google_perftools_module     enable ngx_google_perftools_module
+#   --with-compat                      dynamic modules compatibility
+#   --with-http_lua_module             enable ngx_http_lua_module (will also enable --with-md5 and --with-sha1)
+#   --with-pcre                        force PCRE library usage
+#   --with-pcre=DIR                    set path to PCRE library sources
+#   --with-pcre-opt=OPTIONS            set additional build options for PCRE
+#   --with-pcre-jit                    build PCRE with JIT compilation support
+#   --with-libatomic                   force libatomic_ops library usage
+#   --with-libatomic=DIR               set path to libatomic_ops library sources
+#   --with-jemalloc                    force jemalloc library usage
+#   --with-jemalloc=DIR                set path to jemalloc library files
+#   --with-debug                       enable debug logging
+#   modules/mod_config
+#   modules/mod_dubbo
+#   modules/ngx_backtrace_module
+#   modules/ngx_debug_pool
+#   modules/ngx_debug_timer
+#   modules/ngx_http_lua_module
+#   modules/ngx_http_upstream_keepalive_module
+#   modules/ngx_http_tfs_module
+
+RUN set -xe;\
+    [ ${MULTITHREAD_BUILD} -eq 1 ]\
+ && PROCESS_NUM=$(cat /proc/cpuinfo | grep processor | wc -l)\
+ && MAKEARG="-j${PROCESS_NUM:-1}";\
+    mkdir -p /usr/src | true\
+ && tar -zxC /usr/src -f tengine.tar.gz\
+ && tar -xzvf "geoip2.tar.gz"\
+ && GEOIP2DIR="$(pwd)/ngx_http_geoip2_module-${GEOIP2_VERSION}"\
+ && ADD_MODULES="--add-module=${GEOIP2DIR}"\
+ && cd /usr/src/tengine-${TENGINE_VERSION}\
+ && ADD_MODULES="${ADD_MODULES} "`./configure --help | grep '\-\-with\-' | grep -Ev '=|with\-(debug|compat|pcre|jemalloc|libatomic|google_perftools_module|http_lua)' | awk '{printf $1" "}'`\
+ && ADD_MODULES="${ADD_MODULES} "`ls modules/ | grep -Ev '^mod*|debug|ngx_(backtrace|http_upstream_keepalive|http_lua|http_tfs)' | awk '{printf "--add-module=modules/"$1" "}'`\
+ && ./configure --prefix="/tengine" --user=tengine --group=tengine\
+    --with-perl_modules_path=/tengine/lib/perl5\
+    ${ADD_MODULES}\
+ && make ${MAKEARG} && make install\
+ # Create custom environment for tengine
+ && sed -e '/\s*server {$/,/^}$/!d' /tengine/conf/nginx.conf > /tengine/conf/example.conf\
+ && sed -e '/\s*server {$/,/^}$/d' -i /tengine/conf/nginx.conf\
+ && echo "    include /tengine/conf.d/*.conf;" >> /tengine/conf/nginx.conf\
+ && echo "}" >> /tengine/conf/nginx.conf\
+ && sed -e 's/^}$//g;s/^    //g;/^$/d' -i /tengine/conf/example.conf\
+ && cat /tengine/conf/nginx.conf
+
+FROM final_env as final
+COPY --from=builder /tengine /tengine
+STOPSIGNAL SIGTERM
+VOLUME [ "/tengine/conf.d", "/tengine/logs" ]
+EXPOSE 80 443
+CMD ["nginx", "-g", "daemon off;"]
