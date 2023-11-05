@@ -228,7 +228,7 @@ PS: 为什么不在Dockerfile里面下载
 docker build\
   --build-arg TENGINE_VERSION=$TENGINE_VERSION \
   --build-arg BUILD_THREADS=`nproc` \
-  -t tengine:alpine .
+  -t tengine:alpine -f Dockerfile.3.0 .
 ```
 #### 对于国内用户
 ``` sh
@@ -237,9 +237,32 @@ docker build\
   --build-arg BUILD_THREADS=`nproc` \
   --build-arg APK_MIRROR=mirrors.sjtug.sjtu.edu.cn \
   --build-arg APK_MIRROR_HTTPS=1 \
-  -t tengine:alpine .
+  -t tengine:alpine -f Dockerfile.3.0 .
 ```
 
+### docker-compose
+``` yaml
+version: '3'
+services:
+  tengine:
+    build:
+      context: tengine/docker
+      args:
+        - TENGINE_VERSION=3.0.0
+        - BROTLI_VERISON=1.0.0rc
+
+```
+#### 对于国内用户
+``` yaml
+version: '3'
+services:
+  tengine:
+    build:
+      context: tengine/docker
+      args:
+        - APK_MIRROR=mirror.sjtu.edu.cn
+        - TENGINE_VERSION=3.0.0
+```
 
 [1]: http://tengine.taobao.org/index_cn.html
 [2]: https://github.com/google/ngx_brotli/tree/v1.0.0rc
