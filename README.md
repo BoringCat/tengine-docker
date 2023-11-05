@@ -94,10 +94,11 @@
 
 ## 1. 各种说明
 ### Tengine 启用的模块
-`ngx_http_geoip2_module`
 - 2.2.2 2.2.3
+  - `ngx_http_geoip2_module`
   - 除了 modules 内的所有
 - 2.3.0 2.3.1 2.3.2
+  - `ngx_http_geoip2_module`
   - 除了
     - `ngx_google_perftools_module`
     - `ngx_http_lua_module`
@@ -110,12 +111,53 @@
     - `modules/ngx_http_lua_module`
     - `modules/ngx_http_upstream_keepalive_module`
     - `modules/ngx_http_tfs_module`
+- 3.0.0
+  - [`ngx_brotli`][2]
+  - 除了
+    - `google_perftools_module`
+    - `compat`
+    - `http_lua_module`
+    - `http_perl_module`
+    - `pcre`
+    - `pcre-opt`
+    - `pcre-jit`
+    - `libatomic`
+    - `jemalloc`
+    - `debug`
+    - `http_upstream_keepalive_module`
+    - `modules/mod_config`
+    - `modules/mod_dubbo`
+    - `modules/ngx_backtrace_module`
+    - `modules/ngx_debug_pool`
+    - `modules/ngx_debug_timer`
+    - `modules/ngx_http_lua_module`
+    - `modules/ngx_http_tfs_module`
+    - `modules/ngx_ingress`
+    - `modules/ngx_http_xquic_module`
+    - `modules/ngx_tongsuo_ntls`
 
 ### Volumes
 |路径|用途|
-|:-:|:-:|
-| `/tengine/conf.d` |你的配置文件
-| `/tengine/logs` |默认日志目录|
+|:-|:-|
+| `/etc/tengine/conf/conf.d` |你的配置文件
+| `/var/log/tengine` |默认日志目录|
+
+#### 其他路径
+|说明|路径|
+|:-|:-|
+| path prefix | `/usr/local/nginx` |
+| binary file | `/usr/local/sbin/nginx` |
+| modules path | `/etc/tengine/modules` |
+| configuration prefix | `/etc/tengine/conf` |
+| configuration file | `/etc/tengine/conf/nginx.conf` |
+| pid file | `/var/log/tengine/nginx.pid` |
+| error log file | `/var/log/tengine/error.log` |
+| http access log file | `/usr/local/nginx/logs/access.log` |
+| http client request body temporary files | `/var/cache/tengine/client_body_temp` |
+| http proxy temporary files | `/var/cache/tengine/proxy_temp` |
+| http fastcgi temporary files | `/var/cache/tengine/fastcgi_temp` |
+| http uwsgi temporary files | `/var/cache/tengine/uwsgi_temp` |
+| http scgi temporary files | `/var/cache/tengine/scgi_temp` |
 
 ### Ports
 这........... 80(http)，443(https)
@@ -124,7 +166,9 @@
 |`tag`|意义|
 |:-:|:-|
 |`alpine`|用alpine构建的最新版|
+|`alpine-dynamic`|用alpine构建的最新版，但能加dynamic的都加了（其实很少）|
 |`alpine-x.x.x`|用alpine构建的tengine的x.x.x版|
+|`alpine-x.x.x-dynamic`|用alpine构建的tengine的x.x.x版，但能加dynamic的都加了（其实很少）|
 
 latest? 我不想和Nginx的Tag混淆
 
@@ -132,8 +176,8 @@ latest? 我不想和Nginx的Tag混淆
 ### docker-cli
 ``` sh
 docker run --name=tengine --restart=unless-stopped\
-    -v /path/to/configs:/tengine/conf.d:ro \
-    -v /path/to/save/logs:/tengine/logs \
+    -v /path/to/configs:/etc/tengine/conf/conf.d:ro \
+    -v /path/to/save/logs:/var/log/tengine \
     -p 80:80 \
     -p 443:443 \
     -d boringcat/tengine:alpine
@@ -141,14 +185,14 @@ docker run --name=tengine --restart=unless-stopped\
 
 ### docker-compose
 ``` yaml
-version: '2'
+version: '3'
 services:
   tengine:
     image: boringcat/tengine:alpine
     restart: unless-stopped
     volumes:
-      - /path/to/configs:/tengine/conf.d:ro
-      - /path/to/save/logs:/tengine/logs
+      - /path/to/configs:/etc/tengine/conf/conf.d:ro
+      - /path/to/save/logs:/var/log/tengine
     ports:
       - 80:80
       - 443:443
@@ -158,23 +202,39 @@ services:
 ## 3. Build 方法示例
 | build-arg | 用途 |
 | :- | :- |
-| `MULTITHREAD_BUILD` | 启用多线程编译<br/>其实可以弃用，当初是为了规避dockerhub的OOM |
 | `APK_MIRROR` | 更换 alpine 源 |
-| `APK_MIRROR_HTTPS` | 使用 https 源 |
-| `TENGINE_VERSION` | 选择 tengine 版本 |
-| `GEOIP2_VERSION` | 选择 GEOIP2 版本 |
+| `APK_MIRROR_HTTPS` | 使用 https 源<br/>其实可以弃用，现在默认都是https了 |
+| `BUILD_THREADS` | 用多少个线程编译（默认：1） |
+| `TENGINE_VERSION` | tengine的版本 |
+| `BROTLI_VERISON` | brotli的版本（默认1.0.0rc） |
+| `TONGSUO_VERISON` | [铜锁][3]的版本<br/>（如果不是用.xquic打包的话可以忽略，反正我没能让它跑起来） |
+| `XQUIC_VERISON` | [xquic][4]的版本<br/>（如果不是用.xquic打包的话可以忽略，反正我没能让它跑起来） |
+
+### 前提条件
+``` sh
+export TENGINE_VERSION=x.x.x BROTLI_VERISON=x.x.x TONGSUO_VERISON=x.x.x XQUIC_VERISON=x.x.x
+mkdir sources/
+wget https://tengine.taobao.org/download/tengine-${TENGINE_VERSION}.tar.gz -O sources/tengine-${TENGINE_VERSION}.tar.gz
+wget https://github.com/google/ngx_brotli/archive/refs/tags/v${BROTLI_VERISON}.tar.gz -O sources/ngx_brotli-${BROTLI_VERISON}.tar.gz
+wget https://github.com/Tongsuo-Project/Tongsuo/archive/refs/tags/${TONGSUO_VERISON}.tar.gz -O sources/Tongsuo-${TONGSUO_VERISON}.tar.gz
+wget https://github.com/alibaba/xquic/archive/refs/tags/v${XQUIC_VERISON}.tar.gz -O sources/xquic-${XQUIC_VERISON}.tar.gz
+```
+PS: 为什么不在Dockerfile里面下载  
+因为慢，每次改一个配置就要重新下载，特别是在改xquic的时候
+
+
 ### docker-cli
 ``` sh
 docker build\
   --build-arg TENGINE_VERSION=$TENGINE_VERSION \
-  --build-arg MULTITHREAD_BUILD=1 \
+  --build-arg BUILD_THREADS=`nproc` \
   -t tengine:alpine .
 ```
 #### 对于国内用户
 ``` sh
 docker build\
   --build-arg TENGINE_VERSION=$TENGINE_VERSION \
-  --build-arg MULTITHREAD_BUILD=1 \
+  --build-arg BUILD_THREADS=`nproc` \
   --build-arg APK_MIRROR=mirrors.sjtug.sjtu.edu.cn \
   --build-arg APK_MIRROR_HTTPS=1 \
   -t tengine:alpine .
@@ -182,3 +242,6 @@ docker build\
 
 
 [1]: http://tengine.taobao.org/index_cn.html
+[2]: https://github.com/google/ngx_brotli/tree/v1.0.0rc
+[3]: https://github.com/Tongsuo-Project/Tongsuo
+[4]: https://github.com/alibaba/xquic

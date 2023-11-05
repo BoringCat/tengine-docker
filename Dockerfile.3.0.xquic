@@ -66,8 +66,50 @@ ARG TARGER=/dst
 #   modules/ngx_http_upstream_keepalive_module
 #   modules/ngx_http_tfs_module
 #   modules/ngx_ingress
-#   modules/ngx_http_xquic_module
 #   modules/ngx_tongsuo_ntls
+
+# 编译 tongsuo
+## Set arg for downloaded source code version.
+## 这里配置你下载的源码版本。必须与文件名对应
+ARG TONGSUO_VERISON=8.3.2
+## Copy source code into container
+## 这里复制源码到容器内
+COPY sources/Tongsuo-${TONGSUO_VERISON}.tar.gz /usr/src/
+RUN set -xe\
+ && MAKEARG="-j${BUILD_THREADS:-1}"\
+# 参考 https://github.com/alibaba/tengine/blob/master/modules/ngx_http_xquic_module/README.md#%E7%BC%96%E8%AF%91
+ && tar -zxC /usr/src -f /usr/src/Tongsuo-${TONGSUO_VERISON}.tar.gz\
+ && cd /usr/src/Tongsuo-${TONGSUO_VERISON}\
+ && ./config --prefix=/usr/local/babassl\
+ && make ${MAKEARG}\
+# 精简内容
+ && rm -rf doc\
+ && make install\
+# 复制到dst目录
+ && mkdir -p ${TARGER}/usr/local/ && cp -rv /usr/local/babassl ${TARGER}/usr/local/babassl
+
+# 编译 xquic
+## Set arg for downloaded source code version.
+## 这里配置你下载的源码版本。必须与文件名对应
+ARG XQUIC_VERISON=1.6.1
+## Copy source code into container
+## 这里复制源码到容器内
+COPY sources/xquic-${XQUIC_VERISON}.tar.gz /usr/src/
+RUN set -xe\
+ && MAKEARG="-j${BUILD_THREADS:-1}"\
+ && tar -zxC /usr/src -f /usr/src/xquic-${XQUIC_VERISON}.tar.gz\
+ && mkdir -p /usr/local/xquic\
+ && cd /usr/local/xquic\
+ && cmake -DGCOV=on -DXQC_ENABLE_TESTING=1 -DXQC_SUPPORT_SENDMMSG_BUILD=1\
+    -DXQC_ENABLE_EVENT_LOG=1 -DXQC_ENABLE_BBR2=1 -DXQC_ENABLE_RENO=1\
+    -DSSL_TYPE="babassl" -DSSL_PATH="/usr/local/babassl"\
+    -DSSL_INC_PATH="/usr/local/babassl/include"\
+    -DSSL_LIB_PATH="/usr/local/babassl/lib/libssl.a;/usr/local/babassl/lib/libcrypto.a" /usr/src/xquic-${XQUIC_VERISON}\
+ && make ${MAKEARG}\
+ && mkdir -p /usr/local/lib/ ${TARGER}/usr/local/lib/\
+ && ln -s ../xquic/libxquic.so /usr/local/lib/libxquic.so\
+ && ln -s ../xquic/libxquic.so ${TARGER}/usr/local/lib/libxquic.so\
+ && cp -rv /usr/local/xquic ${TARGER}/usr/local/xquic
 
 # 编译 Tengine
 ## Set arg for downloaded source code version.
@@ -79,14 +121,16 @@ ARG BROTLI_VERISON=1.0.0rc
 COPY sources/tengine-${TENGINE_VERSION}.tar.gz\
      sources/ngx_brotli-${BROTLI_VERISON}.tar.gz\
    /usr/src/
+COPY patchs/${TENGINE_VERSION}/ /usr/src/patchs/
 RUN set -xe\
  && MAKEARG="-j${BUILD_THREADS:-1}"\
  && tar -zxC /usr/src -f /usr/src/tengine-${TENGINE_VERSION}.tar.gz\
  && tar -zxC /usr/src/tengine-${TENGINE_VERSION}/modules -f /usr/src/ngx_brotli-${BROTLI_VERISON}.tar.gz\
  && mv /usr/src/tengine-${TENGINE_VERSION}/modules/ngx_brotli-${BROTLI_VERISON} /usr/src/tengine-${TENGINE_VERSION}/modules/ngx_brotli\
  && cd /usr/src/tengine-${TENGINE_VERSION}\
+ && (for file in /usr/src/patchs/*.diff; do patch -p0 < ${file}; done)\
  && ADD_MODULES="${ADD_MODULES} "`./configure --help | grep '\-\-with\-' | grep -Ev '=|with\-(debug|compat|pcre|jemalloc|libatomic|google_perftools_module|http_lua|http_perl)' | awk '{printf $1" "}'`\
- && ADD_MODULES="${ADD_MODULES} "`ls modules/ | grep -Ev '^mod*|debug|ngx_(backtrace|http_lua|http_tfs|ingress|http_xquic_module|tongsuo_ntls)' | awk '{printf "--add-module=modules/"$1" "}'`\
+ && ADD_MODULES="${ADD_MODULES} "`ls modules/ | grep -Ev '^mod*|debug|ngx_(backtrace|http_upstream_keepalive|http_lua|http_tfs|ingress|tongsuo_ntls)' | awk '{printf "--add-module=modules/"$1" "}'`\
  && ./configure --user=tengine --group=tengine\
     --sbin-path="/usr/local/sbin/nginx"\
     --modules-path="/etc/tengine/modules"\
@@ -99,8 +143,10 @@ RUN set -xe\
     --http-fastcgi-temp-path="/var/cache/tengine/fastcgi_temp"\
     --http-uwsgi-temp-path="/var/cache/tengine/uwsgi_temp"\
     --http-scgi-temp-path="/var/cache/tengine/scgi_temp"\
-    --without-http_upstream_keepalive_module\
     ${ADD_MODULES}\
+    --with-xquic-inc="/usr/src/xquic-${XQUIC_VERISON}/include" \
+    --with-xquic-lib="/usr/local/xquic" \
+    --with-openssl="/usr/src/Tongsuo-${TONGSUO_VERISON}"\
  && make ${MAKEARG} && env DESTDIR=${TARGER} make install\
  && mkdir -p ${TARGER}/var/cache/tengine/{client_body_temp,proxy_temp,fastcgi_temp,uwsgi_temp,scgi_temp}\
  # Create custom environment for tengine

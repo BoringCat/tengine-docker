@@ -85,9 +85,10 @@ RUN set -xe\
  && tar -zxC /usr/src/tengine-${TENGINE_VERSION}/modules -f /usr/src/ngx_brotli-${BROTLI_VERISON}.tar.gz\
  && mv /usr/src/tengine-${TENGINE_VERSION}/modules/ngx_brotli-${BROTLI_VERISON} /usr/src/tengine-${TENGINE_VERSION}/modules/ngx_brotli\
  && cd /usr/src/tengine-${TENGINE_VERSION}\
- && ADD_MODULES="${ADD_MODULES} "`./configure --help | grep '\-\-with\-' | grep -Ev '=|with\-(debug|compat|pcre|jemalloc|libatomic|google_perftools_module|http_lua|http_perl)' | awk '{printf $1" "}'`\
- && ADD_MODULES="${ADD_MODULES} "`ls modules/ | grep -Ev '^mod*|debug|ngx_(backtrace|http_lua|http_tfs|ingress|http_xquic_module|tongsuo_ntls)' | awk '{printf "--add-module=modules/"$1" "}'`\
- && ./configure --user=tengine --group=tengine\
+ && ADD_MODULES="${ADD_MODULES} "`./configure --help | grep -E '\--with-.+?=dynamic' | awk '{printf $1" "}'`\
+ && ADD_MODULES="${ADD_MODULES} "`./configure --help | grep -E '\--with-[^ =]+?[^=] ' | grep -Ev 'with-(debug|compat|pcre|jemalloc|libatomic|google_perftools_module|http_lua|http_perl)' | awk '{printf $1" "}'`\
+ && ADD_MODULES="${ADD_MODULES} "`ls modules/ | grep -Ev '^mod*|debug|ngx_(backtrace|http_lua|http_tfs|ingress|http_xquic_module|tongsuo_ntls)' | awk '{ if ($1 ~ /^ngx_multi_upstream_module$/) {printf "--add-module=modules/"$1" "} else {printf "--add-dynamic-module=modules/"$1" "}}'`\
+ && ./configure --user=tengine --group=tengine --with-compat\
     --sbin-path="/usr/local/sbin/nginx"\
     --modules-path="/etc/tengine/modules"\
     --conf-path="/etc/tengine/conf/nginx.conf"\
